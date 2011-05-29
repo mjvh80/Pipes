@@ -33,9 +33,9 @@ namespace ConsoleApplication1
             // PROBLEM: disposing streams and other resources...
 
             var pipe = Pipes.Create<Stream, Stream>(tRequest.BeginGetRequestStream, tRequest.EndGetRequestStream)
-               .Connect(Pipes.CreateEnd<Stream, Stream>((str, cb, state) => str.BeginWrite(tRequestBuffer, 0, tRequestBuffer.Length, cb, state), (s, r) => s.EndWrite(r))) // should probably flush as well.
+               .Connect(Pipes.CreateEnd<Stream, Stream>((str, cb, state) => str.BeginWrite(tRequestBuffer, 0, tRequestBuffer.Length, cb, state), (s, r) => s.EndWrite(r)).Dispose()) // should probably flush as well.
                .Connect(tRequest.BeginGetResponse, (r) => tRequest.EndGetResponse(r).GetResponseStream())
-               .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], (s) => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(t => 0, i => i > 0));
+               .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], (s) => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(t => 0, i => i > 0).Dispose());
 
             // Start.
 
@@ -52,7 +52,7 @@ namespace ConsoleApplication1
          }
          catch (Exception e)
          {
-            Console.WriteLine("ERROR : " + e.Message);
+            Console.WriteLine("ERROR : " + e.Message + Environment.NewLine + e.StackTrace);
             Console.Read();
          }
          Console.Read();

@@ -127,9 +127,10 @@ namespace SomeNamespace
 
    public abstract class Pipe<I, T> : IPipe<I, T>
    {
-      protected Exception mException; // todo
+      protected Action<I> mFinalAction = null;
 
       public abstract IAsyncResult BeginFlow(I input, AsyncCallback cb, Object state);
+
       public abstract T EndFlow(I input, IAsyncResult result);
 
       public IAsyncResult BeginFlow(AsyncCallback cb, Object state)
@@ -140,6 +141,26 @@ namespace SomeNamespace
       public T EndFlow(IAsyncResult result)
       {
          return EndFlow(default(I), result);
+      }
+
+      public virtual Pipe<I, T> Finally(Action<I> finalAction)
+      {
+         mFinalAction = finalAction;
+         return this;
+      }
+
+      public Pipe<I, T> Dispose()
+      {
+         if (!typeof(IDisposable).IsAssignableFrom(typeof(I)))
+            throw new InvalidOperationException(String.Format("Type {0} is not IDisposable.", typeof(I).Name));
+
+         return Finally(i => ((IDisposable)i).Dispose());
+      }
+
+      protected virtual void DoFinally(I input)
+      {
+         if (mFinalAction != null)
+            mFinalAction(input);
       }
 
       public Pipe<I, U> Connect<U>(Pipe<T, U> otherPipe)
@@ -181,7 +202,14 @@ namespace SomeNamespace
 
       public override T EndFlow(I input, IAsyncResult result)
       {
-         return endMethod(input, result);
+         try
+         {
+            return endMethod(input, result);
+         }
+         finally
+         {
+            DoFinally(input);
+         }
       }
    }
 
@@ -273,15 +301,22 @@ namespace SomeNamespace
 
       public override T EndFlow(I input, IAsyncResult result)
       {
-         AsyncResult tCompleteResult = (AsyncResult)result;
-         if (!tCompleteResult.IsCompleted)
-            while (!tCompleteResult.AsyncWaitHandle.WaitOne(1000))
-               Console.WriteLine("Waiting on wait handle... retrying " + tCompleteResult.CallerState); // todo: log to something else
-         
-         if (tCompleteResult.Exception != null)
-            throw tCompleteResult.Exception;
-         
-         return mValue;
+         try
+         {
+            AsyncResult tCompleteResult = (AsyncResult)result;
+            if (!tCompleteResult.IsCompleted)
+               while (!tCompleteResult.AsyncWaitHandle.WaitOne(1000))
+                  Console.WriteLine("Waiting on wait handle... retrying " + tCompleteResult.CallerState); // todo: log to something else
+
+            if (tCompleteResult.Exception != null)
+               throw tCompleteResult.Exception;
+
+            return mValue;
+         }
+         finally
+         {
+            DoFinally(input);
+         }
       }
    }
 
@@ -326,7 +361,7 @@ namespace SomeNamespace
 
       protected virtual Pipe<R, T> BuildLoop()
       {
-         return Pipes.Create<R, T>((i, cb, o) => this.BeginFlow(mInput, cb, o), (i, r) => this.EndFlow(r));
+         return Pipes.Create<R, T>((i, cb, o) => this.BeginFlow(mInput, cb, o), (i, r) => this.EndFlow(mInput, r));
       }
 
       public override T EndFlow(I input, IAsyncResult result)

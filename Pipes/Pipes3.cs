@@ -275,9 +275,8 @@ namespace SomeNamespace
       {
          AsyncResult tCompleteResult = (AsyncResult)result;
          if (!tCompleteResult.IsCompleted)
-            if (!tCompleteResult.AsyncWaitHandle.WaitOne(0))
-               while (!tCompleteResult.AsyncWaitHandle.WaitOne(1000))
-                  Console.WriteLine("Waiting on wait handle... retrying " + tCompleteResult.CallerState); // todo: log to something else
+            while (!tCompleteResult.AsyncWaitHandle.WaitOne(1000))
+               Console.WriteLine("Waiting on wait handle... retrying " + tCompleteResult.CallerState); // todo: log to something else
          
          if (tCompleteResult.Exception != null)
             throw tCompleteResult.Exception;

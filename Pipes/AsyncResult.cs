@@ -70,8 +70,8 @@ namespace Aquabrowser.Core.Threading
 
                // If an exception happens in the callback, this thread won't be affected.
                if (mUserCallback != null)
-                  mUserCallback(this);
-                  //ThreadPool.QueueUserWorkItem(o => mUserCallback(this));
+                  //mUserCallback(this);
+                  ThreadPool.QueueUserWorkItem(o => mUserCallback(this));
             }
       }
 
@@ -134,7 +134,7 @@ namespace Aquabrowser.Core.Threading
          {
             Dispose();
          }
-         catch (Exception e)
+         catch
          {
             //ExceptionLog.Log(e, "AsyncResult: exception during Dispose()");
          }

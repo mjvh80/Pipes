@@ -20,13 +20,14 @@ namespace ConsoleApplication1
             WebRequest tRequest = WebRequest.Create("http://localhost/asptest/Foo.ashx");
             tRequest.Method = "POST";
 
-            Byte[] tRequestBuffer = Encoding.UTF8.GetBytes(""); // something here
+           // Byte[] tRequestBuffer = File.ReadAllBytes(@"C:\Users\mvanhoudt\Desktop\009.reg"); 
+            Byte[] tRequestBuffer = Encoding.UTF8.GetBytes(new String('a', 9000) + "B"); // something here
             MemoryStream tResult = new MemoryStream(); // for testing
 
             var pipe = Pipes.Create<Stream, Stream>(tRequest.BeginGetRequestStream, tRequest.EndGetRequestStream)
-               .Connect(Pipes.CreateEnd<Stream, Stream>((str, cb, state) => str.BeginWrite(tRequestBuffer, 0, tRequestBuffer.Length, cb, state), (s, r) => s.EndWrite(r)).Dispose()) // should probably flush as well.
+               .Connect(Pipes.CreateEnd<Stream, Stream>((str, cb, state) => str.BeginWrite(tRequestBuffer, 0, tRequestBuffer.Length, cb, state), (s, r) => s.EndWrite(r)).Dispose())
                .Connect(tRequest.BeginGetResponse, (r) => tRequest.EndGetResponse(r).GetResponseStream())
-               .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], (s) => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(t => 0, i => i > 0).Dispose());
+               .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], (s) => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(i => i > 0).Dispose());
 
             // Start.
             IAsyncResult ar = pipe.BeginFlow(null, null);
@@ -35,7 +36,11 @@ namespace ConsoleApplication1
             pipe.EndFlow(ar);
 
             tResult.Position = 0;
-            Console.WriteLine("Got: " + new StreamReader(tResult).ReadToEnd());
+
+        //    if (tResult.Length != tRequestBuffer.Length)
+          //     throw new Exception("failed echo");
+
+           Console.WriteLine("Got: " + new StreamReader(tResult).ReadToEnd());
 
 
          }

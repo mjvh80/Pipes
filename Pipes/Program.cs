@@ -17,12 +17,13 @@ namespace ConsoleApplication1
       {
          try
          {
+            /* Example program that uses a local service which echoes the request. */
             WebRequest tRequest = WebRequest.Create("http://localhost/asptest/Foo.ashx");
             tRequest.Method = "POST";
 
-           // Byte[] tRequestBuffer = File.ReadAllBytes(@"C:\Users\mvanhoudt\Desktop\009.reg"); 
+            /* Random, 9000 a's followed by a B. */
             Byte[] tRequestBuffer = Encoding.UTF8.GetBytes(new String('a', 9000) + "B"); // something here
-            MemoryStream tResult = new MemoryStream(); // for testing
+            MemoryStream tResult = new MemoryStream(); // usually this would be a client, say, with us acting as proxy
 
             var pipe = Pipes.Create<Stream, Stream>(tRequest.BeginGetRequestStream, tRequest.EndGetRequestStream)
                .Connect(Pipes.CreateEnd<Stream, Stream>((str, cb, state) => str.BeginWrite(tRequestBuffer, 0, tRequestBuffer.Length, cb, state), (s, r) => s.EndWrite(r)).Dispose())
@@ -32,17 +33,11 @@ namespace ConsoleApplication1
             // Start.
             IAsyncResult ar = pipe.BeginFlow(null, null);
 
-            // Wait.
+            // Wait here.
             pipe.EndFlow(ar);
 
             tResult.Position = 0;
-
-        //    if (tResult.Length != tRequestBuffer.Length)
-          //     throw new Exception("failed echo");
-
-           Console.WriteLine("Got: " + new StreamReader(tResult).ReadToEnd());
-
-
+            Console.WriteLine("Got: " + new StreamReader(tResult).ReadToEnd());
          }
          catch (Exception e)
          {
@@ -51,14 +46,6 @@ namespace ConsoleApplication1
          }
          Console.Read();
          Console.Read();
-      }
-
-
-      static Int64 Time(Action a)
-      {
-         Stopwatch tTimer = Stopwatch.StartNew();
-         a();
-         return tTimer.ElapsedMilliseconds;
       }
    }
 }

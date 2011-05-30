@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
 
-namespace ConsoleApplication1
+namespace PipesCore
 {
    /// <summary>
    /// Provides a Dummy IAsyncResult implementation that has completed, with an option for synchronous completion.

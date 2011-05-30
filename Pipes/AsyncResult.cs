@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Threading;
-using Aquabrowser.Core;
 
-namespace Aquabrowser.Core.Threading
+namespace PipesCore
 {
    /// <summary>
    /// General purpose thread safe IAsyncResult implementation with exception handling and (basic) support
@@ -104,8 +101,7 @@ namespace Aquabrowser.Core.Threading
                this.mException = pEx;
            // else // only grab the first one, others get logged
              //  ExceptionLog.Log(pEx, "AsyncResult::HandleException: multiple requests for exception handling. Only logged.");
-            // todo?
-
+          
             MarkComplete();
          }
       }
@@ -136,7 +132,7 @@ namespace Aquabrowser.Core.Threading
          }
          catch
          {
-            //ExceptionLog.Log(e, "AsyncResult: exception during Dispose()");
+            // log
          }
       }
 

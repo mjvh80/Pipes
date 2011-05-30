@@ -1,15 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Timers;
-using System.Diagnostics;
-using System.Threading.Tasks;
-using SomeNamespace;
-using System.Net;
 using System.IO;
+using System.Net;
+using System.Text;
 
-namespace ConsoleApplication1
+namespace PipesCore
 {
    class Program
    {

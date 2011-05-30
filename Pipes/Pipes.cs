@@ -1,136 +1,83 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using Aquabrowser.Core.Threading;
-using System.Threading;
-using System.IO;
 
-namespace SomeNamespace
+namespace PipesCore
 {
-   public interface IPipe<in I, out T> { }
+   public interface IPipe<in I, out T>
+   {
+      IAsyncResult BeginFlow(I input, AsyncCallback cb, Object state);
+      T EndFlow(I input, IAsyncResult result);
+
+      IAsyncResult BeginFlow(AsyncCallback cb, Object state);
+      T EndFlow(IAsyncResult result);
+   }
+
+   // Redefinition of Action and Func delegates: allows usage in .NET 2.
+   // Can be renamed to Func/Action in .NET 4 (or 3.5, it needs last one).
+   public delegate void _Action();
+   public delegate void _Action<T>(T item);
+   public delegate void _Action<T1, T2>(T1 item1, T2 item2);
+   public delegate T _Func<T>();
+   public delegate T _Func<I, T>(I item);
+   public delegate T _Func<I1, I2, T>(I1 item1, I2 item2);
+   public delegate T _Func<I1, I2, I3, T>(I1 item1, I2 item2, I3 item3);
+   public delegate T _Func<I1, I2, I3, I4, T>(I1 item1, I2 item2, I3 item3, I4 item4);
+   public delegate T _Func<I1, I2, I3, I4, I5, T>(I1 item1, I2 item2, I3 item3, I4 item4, I5 item5); // you'll need this one in .net 3.5
 
    public static class Pipes
    {
-
-      /*
-      public static Pipe<I, Int32> ReadWrite<I, T>(Byte[] buffer, Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginRead, Func<IAsyncResult, Int32> endRead,
-         Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginWrite, Action<IAsyncResult> endWrite)
-      {
-         return ReadWrite<I, Int32>(buffer, 0, buffer.Length, beginRead, endRead, beginWrite, endWrite);
-      }
-
-      public static Pipe<I, Int32> ReadWrite<I, T>(Byte[] buffer, Int32 offset, Int32 count, Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginRead, Func<IAsyncResult, Int32> endRead,
-         Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginWrite, Action<IAsyncResult> endWrite)
-      {
-         return Create<I, Int32>((i, cb, s) => beginRead(buffer, offset, count, cb, s), r => endRead(r)).Connect((i, cb, s) => beginWrite(buffer, 0, i, cb, s), (i, r) => { endWrite(r); return i; });
-      }*/
-
-      public static Pipe<I, Int32> ReadWrite<I, T>(Byte[] buffer, Func<I, Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginRead, Func<I, Func<IAsyncResult, Int32>> endRead,
-        Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginWrite, Action<IAsyncResult> endWrite)
+      public static Pipe<I, Int32> ReadWrite<I, T>(Byte[] buffer, _Func<I, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginRead, _Func<I, _Func<IAsyncResult, Int32>> endRead,
+        _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginWrite, _Action<IAsyncResult> endWrite)
       {
          return ReadWrite<I, T>(buffer, 0, buffer.Length, beginRead, endRead, beginWrite, endWrite);
       }
 
-      public static Pipe<I, Int32> ReadWrite<I, T>(Byte[] buffer, Int32 offset, Int32 count, Func<I, Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginRead, Func<I, Func<IAsyncResult, Int32>> endRead,
-        Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginWrite, Action<IAsyncResult> endWrite)
+      public static Pipe<I, Int32> ReadWrite<I, T>(Byte[] buffer, Int32 offset, Int32 count, _Func<I, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginRead, _Func<I, _Func<IAsyncResult, Int32>> endRead,
+        _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginWrite, _Action<IAsyncResult> endWrite)
       {
          return Create<I, Int32>((i, cb, s) => beginRead(i)(buffer, offset, count, cb, s), (i, r) => endRead(i)(r)).Connect((i, cb, s) => beginWrite(buffer, 0, i, cb, s), (i, r) => { endWrite(r); return i; });
       }
 
-      public static Pipe<I, T> Create<I, T>(Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, Func<I, IAsyncResult, T> endMethod)
+      public static Pipe<I, T> Create<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<I, IAsyncResult, T> endMethod)
       {
          return new DelegatePipe<I, T>(beginMethod, endMethod);
       }
 
-      public static Pipe<I, T> Create<I, T>(Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, Func<IAsyncResult, T> endMethod)
+      public static Pipe<I, T> Create<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<IAsyncResult, T> endMethod)
       {
          return Create(beginMethod, (i, r) => endMethod(r));
       }
 
-      public static Pipe<I, T> Create<I, T>(Func<AsyncCallback, Object, IAsyncResult> beginMethod, Func<IAsyncResult, T> endMethod)
+      public static Pipe<I, T> Create<I, T>(_Func<AsyncCallback, Object, IAsyncResult> beginMethod, _Func<IAsyncResult, T> endMethod)
       {
          return Create<I, T>((i, c, s) => beginMethod(c, s), (i, r) => endMethod(r)); // ignore input 
       }
 
-      public static Pipe<I, T> CreateEnd<I, T>(Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, Action<I, IAsyncResult> endMethod)
+      public static Pipe<I, T> CreateEnd<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Action<I, IAsyncResult> endMethod)
       {
          return Create<I, T>((i, c, s) => beginMethod(i, c, s), (i, r) => { endMethod(i, r); return default(T); }); // ignore output 
       }
 
-      public static Pipe<I, T> CreateEnd<I, T>(Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, Action<IAsyncResult> endMethod)
+      public static Pipe<I, T> CreateEnd<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Action<IAsyncResult> endMethod)
       {
          return Create<I, T>((i, c, s) => beginMethod(i, c, s), (i, r) => { endMethod(r); return default(T); }); // ignore output 
       }
 
-      public static Pipe<I, T> CreateEnd<I, T>(Func<AsyncCallback, Object, IAsyncResult> beginMethod, Action<IAsyncResult> endMethod)
+      public static Pipe<I, T> CreateEnd<I, T>(_Func<AsyncCallback, Object, IAsyncResult> beginMethod, _Action<IAsyncResult> endMethod)
       {
          return Create<I, T>((i, c, s) => beginMethod(c, s), (i, r) => { endMethod(r); return default(T); }); // ignore output 
       }
 
-      
-      public static Pipe<I, U> Connect<I, T, U>(this Pipe<I, T> pipe, Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, Func<T, IAsyncResult, U> endMethod)
-      {
-         return pipe.Connect(Pipes.Create<T, U>(beginMethod, endMethod));
-      }
-
-      public static Pipe<I, U> Connect<I, T, U>(this Pipe<I, T> pipe, Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, Func<IAsyncResult, U> endMethod)
-      {
-         return pipe.Connect(Pipes.Create<T, U>(beginMethod, endMethod));
-      }
-
-      public static Pipe<I, U> Connect<I, T, U>(this Pipe<I, T> pipe, Func<AsyncCallback, Object, IAsyncResult> beginMethod, Func<IAsyncResult, U> endMethod)
-      {
-         return pipe.Connect(Pipes.Create<T, U>(beginMethod, endMethod));
-      }
-
-      public static Pipe<I, U> ConnectEnd<I, T, U>(this Pipe<I, T> pipe, Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, Action<T, IAsyncResult> endMethod)
-      {
-         return pipe.Connect(Pipes.CreateEnd<T, U>(beginMethod, endMethod));
-      }
-
-      public static Pipe<I, U> ConnectEnd<I, T, U>(this Pipe<I, T> pipe, Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, Action<IAsyncResult> endMethod)
-      {
-         return pipe.Connect(Pipes.CreateEnd<T, U>(beginMethod, endMethod));
-      }
-
-      public static Pipe<I, U> ConnectEnd<I, T, U>(this Pipe<I, T> pipe, Func<AsyncCallback, Object, IAsyncResult> beginMethod, Action<IAsyncResult> endMethod)
-      {
-         return pipe.Connect(Pipes.CreateEnd<T, U>(beginMethod, endMethod));
-      }
-
-      public static Pipe<I, T> Loop<I, T>(this Pipe<I, T> pipe, Func<T, Boolean> predicate)
-      {
-         return Loop(pipe, t => t, predicate);
-      }
-
-      public static Pipe<I, T> Loop<I, T>(this Pipe<I, T> pipe, Func<T, T> next, Func<T, Boolean> predicate)
-      {
-         return Loop(pipe, next.ToPipe(), predicate);
-      }
-
-      public static Pipe<I, T> Loop<I, T>(this Pipe<I, T> pipe, Pipe<T, T> next, Func<T, Boolean> predicate)
-      {
-         return pipe.Loop(next, predicate);
-      }
-
-      //public static Pipe<I, U> Connect<I, T, U>(this Pipe<I, T> pipe, Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, Action<I, IAsyncResult> endMethod)
-      //{
-      //   return pipe.Connect(Pipes.Create<T, U>(beginMethod, endMethod));
-      //}
-
-
-      public static Func<I, T> ToFunc<I, T>(this Pipe<I, T> pipe)
-      {
-         return (i) => pipe.EndFlow(i, pipe.BeginFlow(i, null, null));
-      }
-
-      public static Pipe<I, T> ToPipe<I, T>(this Func<I, T> del)
+      public static Pipe<I, T> ToPipe<I, T>(this _Func<I, T> del)
       {
          return Create<I, T>((i, cb, o) => del.BeginInvoke(i, cb, o), (r) => del.EndInvoke(r));
       }
 
-      public static Pipe<T, T> ToPipe<T>(this Action<T> del)
+      public static Pipe<T, T> ToPipe<T>(this _Func<T> del)
+      {
+         return Create<T, T>((cb, o) => del.BeginInvoke(null, null), r => del.EndInvoke(r));
+      }
+
+      public static Pipe<T, T> ToPipe<T>(this _Action<T> del)
       {
          return CreateEnd<T, T>((t, cb, s) => del.BeginInvoke(t, cb, s), r => del.EndInvoke(r));
       }
@@ -138,7 +85,7 @@ namespace SomeNamespace
 
    public abstract class Pipe<I, T> : IPipe<I, T>
    {
-      protected Action<I> mFinalAction = null;
+      protected _Action<I> mFinalAction = null;
 
       public abstract IAsyncResult BeginFlow(I input, AsyncCallback cb, Object state);
 
@@ -154,24 +101,32 @@ namespace SomeNamespace
          return EndFlow(default(I), result);
       }
 
-      public virtual Pipe<I, T> Finally(Action<I> finalAction)
+      public virtual _Action<I> FinalAction
       {
-         mFinalAction = finalAction;
-         return this;
+         set { mFinalAction = value; }
       }
-
-      public Pipe<I, T> Dispose()
-      {
-         if (!typeof(IDisposable).IsAssignableFrom(typeof(I)))
-            throw new InvalidOperationException(String.Format("Type {0} is not IDisposable.", typeof(I).Name));
-
-         return Finally(i => ((IDisposable)i).Dispose());
-      }
-
+      
       protected virtual void DoFinally(I input)
       {
          if (mFinalAction != null)
             mFinalAction(input);
+      }
+
+      #region Pipe Operations
+
+      public  Pipe<I, U> Connect<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<T, IAsyncResult, U> endMethod)
+      {
+         return this.Connect(Pipes.Create<T, U>(beginMethod, endMethod));
+      }
+
+      public  Pipe<I, U> Connect<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<IAsyncResult, U> endMethod)
+      {
+         return this.Connect(Pipes.Create<T, U>(beginMethod, endMethod));
+      }
+
+      public  Pipe<I, U> Connect<U>(_Func<AsyncCallback, Object, IAsyncResult> beginMethod, _Func<IAsyncResult, U> endMethod)
+      {
+         return this.Connect(Pipes.Create<T, U>(beginMethod, endMethod));
       }
 
       public Pipe<I, U> Connect<U>(Pipe<T, U> otherPipe)
@@ -179,28 +134,100 @@ namespace SomeNamespace
          return new ConnectedPipe<I, T, U>(this, otherPipe);
       }
 
-      public Pipe<I, U> Branch<U>(Pipe<T, U> ifPipe, Pipe<T, U> elsePipe, Func<T, Boolean> predicate)
+      public  Pipe<I, U> ConnectEnd<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Action<T, IAsyncResult> endMethod)
+      {
+         return this.Connect(Pipes.CreateEnd<T, U>(beginMethod, endMethod));
+      }
+
+      public  Pipe<I, U> ConnectEnd<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Action<IAsyncResult> endMethod)
+      {
+         return this.Connect(Pipes.CreateEnd<T, U>(beginMethod, endMethod));
+      }
+
+      public  Pipe<I, U> ConnectEnd<U>(_Func<AsyncCallback, Object, IAsyncResult> beginMethod, _Action<IAsyncResult> endMethod)
+      {
+         return this.Connect(Pipes.CreateEnd<T, U>(beginMethod, endMethod));
+      }
+
+      public  Pipe<I, T> Loop(_Func<T, Boolean> predicate)
+      {
+         return Loop(t => t, predicate);
+      }
+
+      public  Pipe<I, T> Loop(_Func<T, T> next, _Func<T, Boolean> predicate)
+      {
+         return Loop(next.ToPipe(), predicate);
+      }
+
+      public  Pipe<I, T> Loop(Pipe<T, T> next, _Func<T, Boolean> predicate)
+      {
+         return Loop<T>(next, predicate);
+      }
+
+      public Pipe<I, R> Loop<R>(Pipe<T, R> nextPipe, _Func<T, Boolean> predicate)
+      {
+         return new LoopingPipe<I, T, R>(this, nextPipe, predicate);
+      }
+     
+      public  Pipe<I, U> Branch<U>(Pipe<T, U> ifPipe, Pipe<T, U> elsePipe, _Func<T, Boolean> predicate)
       {
          return new ConditionalPipe<I, T, U>(this, ifPipe, elsePipe, predicate);
       }
 
-      public Pipe<I, R> Loop<R>(Pipe<T, R> nextPipe, Func<T, Boolean> predicate)
-      {
-         return new LoopingPipe<I, T, R>(this, nextPipe, predicate);
-      }
-
-      public Pipe<I, T> Filter(Func<T, T> filter)
+      public  Pipe<I, T> Filter(_Func<T, T> filter)
       {
          return new DelegatePipe<I, T>(BeginFlow, (i, r) => filter(EndFlow(i, r)));
       }
+
+      public  Pipe<I, T> Finally(_Action<I> finalAction)
+      {
+         mFinalAction = finalAction;
+         return this;
+      }
+
+      public  Pipe<I, T> Dispose()
+      {
+         if (!typeof(IDisposable).IsAssignableFrom(typeof(I)))
+            throw new InvalidOperationException(String.Format("Type {0} is not IDisposable.", typeof(I).Name));
+
+         return Finally(i => ((IDisposable)i).Dispose());
+      }
+
+      // keep?
+      public  _Func<I, T> ToFunc()
+      {
+         return (i) => EndFlow(i, BeginFlow(i, null, null));
+      }
+
+      public static implicit operator _Func<I, T>(Pipe<I, T> pipe)
+      {
+         return pipe.ToFunc();
+      }
+
+      public static implicit operator _Func<T>(Pipe<I, T> pipe)
+      {
+         return () => pipe.EndFlow(pipe.BeginFlow(null, null));
+      }
+
+      public static implicit operator _Action<I>(Pipe<I, T> pipe)
+      {
+         return (i) => pipe.EndFlow(i, pipe.BeginFlow(i, null, null));
+      }
+
+      public static implicit operator _Action(Pipe<I, T> pipe)
+      {
+         return () => pipe.EndFlow(pipe.BeginFlow(null, null));
+      }
+
+      #endregion
    }
 
    internal class DelegatePipe<I, T> : Pipe<I, T>
    {
-      protected Func<I, AsyncCallback, Object, IAsyncResult> beginMethod;
-      protected Func<I, IAsyncResult, T> endMethod;
+      protected _Func<I, AsyncCallback, Object, IAsyncResult> beginMethod;
+      protected _Func<I, IAsyncResult, T> endMethod;
 
-      public DelegatePipe(Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, Func<I, IAsyncResult, T> endMethod)
+      public DelegatePipe(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<I, IAsyncResult, T> endMethod)
       {
          this.beginMethod = beginMethod;
          this.endMethod = endMethod;
@@ -226,9 +253,9 @@ namespace SomeNamespace
 
    internal class FilteredPipe<I, T> : DelegatePipe<I, T>
    {
-      protected Func<T, T> mFilter;
+      protected _Func<T, T> mFilter;
 
-      public FilteredPipe(Pipe<I, T> pipe, Func<T, T> filter) : base(pipe.BeginFlow, pipe.EndFlow)
+      public FilteredPipe(Pipe<I, T> pipe, _Func<T, T> filter) : base(pipe.BeginFlow, pipe.EndFlow)
       {
          mFilter = filter;
       }
@@ -240,8 +267,6 @@ namespace SomeNamespace
          return mFilter(base.EndFlow(input, result));
       }
    }
-
-   internal static class Counter { public static Int32 Count; }
 
    // connects left to right
    internal class ConnectedPipe<I, R, T> : Pipe<I, T>
@@ -292,9 +317,7 @@ namespace SomeNamespace
 
       public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
       {
-         Int32 tmp = Interlocked.Increment(ref Counter.Count);
-         AsyncResult tCompleteResult = new AsyncResult(cb, tmp, state);
-         //Console.WriteLine(" + Starting flow in left (new result): " + tmp);
+         AsyncResult tCompleteResult = new AsyncResult(cb, null, state);
          mLeft.BeginFlow(input, r =>
             {
                try
@@ -333,10 +356,10 @@ namespace SomeNamespace
 
    internal class ConditionalPipe<I, R, T> : ConnectedPipe<I, R, T>
    {
-      protected Func<R, Boolean> mPredicate;
+      protected _Func<R, Boolean> mPredicate;
       protected Pipe<R, T> mOtherPipe;
 
-      public ConditionalPipe(Pipe<I, R> inPipe, Pipe<R, T> ifPipe, Pipe<R,T> elsePipe, Func<R, Boolean> predicate) : base(inPipe, ifPipe)
+      public ConditionalPipe(Pipe<I, R> inPipe, Pipe<R, T> ifPipe, Pipe<R,T> elsePipe, _Func<R, Boolean> predicate) : base(inPipe, ifPipe)
       {
          mPredicate = predicate;
          mOtherPipe = elsePipe;
@@ -359,7 +382,7 @@ namespace SomeNamespace
    {
       protected I mInput;
 
-      public LoopingPipe(Pipe<I, R> inPipe, Pipe<R, T> elsePipe, Func<R, Boolean> predicate) : base(inPipe, null, elsePipe, predicate) 
+      public LoopingPipe(Pipe<I, R> inPipe, Pipe<R, T> elsePipe, _Func<R, Boolean> predicate) : base(inPipe, null, elsePipe, predicate) 
       {
          mRight = BuildLoop();
       }

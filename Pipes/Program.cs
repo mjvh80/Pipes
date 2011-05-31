@@ -21,11 +21,15 @@ namespace PipesCore
 
             var pipe = Pipes.Create<Stream, Stream>(tRequest.BeginGetRequestStream, tRequest.EndGetRequestStream)
                .Connect(Pipes.CreateEnd<Stream, Stream>((str, cb, state) => str.BeginWrite(tRequestBuffer, 0, tRequestBuffer.Length, cb, state), (s, r) => s.EndWrite(r)).Dispose())
-               .Connect(tRequest.BeginGetResponse, (r) => tRequest.EndGetResponse(r).GetResponseStream())
+               .Connect(tRequest.BeginGetResponse, tRequest.EndGetResponse) // (r) => tRequest.EndGetResponse(r).GetResponseStream())
+               .Map(webres => webres.GetResponseStream()) // can also do this above of course, as in comment
                .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], (s) => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(i => i > 0).Dispose());
 
             // Start.
-            IAsyncResult ar = pipe.BeginFlow(null, null);
+            IAsyncResult ar = pipe.BeginFlow(null, 7);
+
+            if ((Int32)ar.AsyncState != 7)
+               throw new Exception("bad state");
 
             // Wait here.
             pipe.EndFlow(ar);

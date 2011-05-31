@@ -37,6 +37,20 @@ namespace PipesCore
          return Create<I, Int32>((i, cb, s) => beginRead(i)(buffer, offset, count, cb, s), (i, r) => endRead(i)(r)).Connect((i, cb, s) => beginWrite(buffer, 0, i, cb, s), (i, r) => { endWrite(r); return i; });
       }
 
+      // variant that adds a target
+
+      public static Pipe<I, Int32> ReadWrite<I, T, S>(Byte[] buffer, S target,_Func<I, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginRead, _Func<I, _Func<IAsyncResult, Int32>> endRead,
+        _Func<S, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginWrite, _Func<S, _Action<IAsyncResult>> endWrite)
+      {
+         return ReadWrite<I, T, S>(buffer, 0, buffer.Length, target, beginRead, endRead, beginWrite, endWrite);
+      }
+
+      public static Pipe<I, Int32> ReadWrite<I, T, S>(Byte[] buffer, Int32 offset, Int32 count, S target, _Func<I, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginRead, _Func<I, _Func<IAsyncResult, Int32>> endRead,
+        _Func<S, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginWrite, _Func<S, _Action<IAsyncResult>> endWrite)
+      {
+         return Create<I, Int32>((i, cb, s) => beginRead(i)(buffer, offset, count, cb, s), (i, r) => endRead(i)(r)).Connect((i, cb, s) => beginWrite(target)(buffer, 0, i, cb, s), (i, r) => { endWrite(target)(r); return i; });
+      }
+
       public static Pipe<I, T> Create<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<I, IAsyncResult, T> endMethod)
       {
          return new DelegatePipe<I, T>(beginMethod, endMethod);
@@ -101,11 +115,6 @@ namespace PipesCore
          return EndFlow(default(I), result);
       }
 
-      public virtual _Action<I> FinalAction
-      {
-         set { mFinalAction = value; }
-      }
-      
       protected virtual void DoFinally(I input)
       {
          if (mFinalAction != null)
@@ -113,6 +122,11 @@ namespace PipesCore
       }
 
       #region Pipe Operations
+
+      public Pipe<I, U> Map<U>(Func<T, U> map)
+      {
+         return this.Connect(new FunctionPipe<T, U>(map));
+      }
 
       public  Pipe<I, U> Connect<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<T, IAsyncResult, U> endMethod)
       {
@@ -251,6 +265,31 @@ namespace PipesCore
       }
    }
 
+   /// <summary>
+   /// Synchronously completing pipe which simply applies a function on input to map to some value.
+   /// </summary>
+   internal class FunctionPipe<I, T> : Pipe<I, T>
+   {
+      protected Func<I, T> mFunction;
+
+      public FunctionPipe(Func<I, T> function)
+      {
+         mFunction = function;
+      }
+
+      public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
+      {
+         IAsyncResult tResult = new _DummyAsyncResult(true, state);
+         cb(tResult);
+         return tResult;
+      }
+
+      public override T EndFlow(I input, IAsyncResult result)
+      {
+         return mFunction(input);
+      }
+   }
+
    internal class FilteredPipe<I, T> : DelegatePipe<I, T>
    {
       protected _Func<T, T> mFilter;
@@ -271,12 +310,15 @@ namespace PipesCore
    // connects left to right
    internal class ConnectedPipe<I, R, T> : Pipe<I, T>
    {
-    //  private static int debug;// = 0;
+      protected class ConnectedResult : AsyncResult
+      {
+         public ConnectedResult(AsyncCallback cb, Object state) : base(cb, null, state) { }
+         public T Value;
+      }
 
       protected Pipe<I, R> mLeft;
       protected Pipe<R, T> mRight;
-      //protected AsyncResult mResult; // todo: do we need to store?
-      protected T mValue;
+      //protected T mValue;
 
       public ConnectedPipe(Pipe<I, R> left, Pipe<R, T> right)
       {
@@ -298,7 +340,7 @@ namespace PipesCore
             {
                try
                {
-                  mValue = pipe.EndFlow(value, r);
+                  ((ConnectedResult)completeResult).Value = pipe.EndFlow(value, r); 
                   completeResult.MarkComplete();
                }
                catch (Exception e)
@@ -315,9 +357,14 @@ namespace PipesCore
          }
       }
 
+      protected virtual ConnectedResult CreateResult(I input, AsyncCallback cb, object state)
+      {
+         return new ConnectedResult(cb, state);
+      }
+
       public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
       {
-         AsyncResult tCompleteResult = new AsyncResult(cb, null, state);
+         AsyncResult tCompleteResult = CreateResult(input, cb, state); // new AsyncResult(cb, null, state);
          mLeft.BeginFlow(input, r =>
             {
                try
@@ -340,12 +387,12 @@ namespace PipesCore
             AsyncResult tCompleteResult = (AsyncResult)result;
             if (!tCompleteResult.IsCompleted)
                while (!tCompleteResult.AsyncWaitHandle.WaitOne(1000))
-                  Console.WriteLine("Waiting on wait handle... retrying " + tCompleteResult.CallerState); // todo: log to something else
+                  Console.WriteLine("Waiting on wait handle... retrying"); // todo: log to something else
 
             if (tCompleteResult.Exception != null)
                throw tCompleteResult.Exception;
 
-            return mValue;
+            return ((ConnectedResult)result).Value;
          }
          finally
          {
@@ -365,14 +412,24 @@ namespace PipesCore
          mOtherPipe = elsePipe;
       }
 
+      protected virtual Pipe<R, T> GetThenPipe(R value, AsyncResult completeResult)
+      {
+         return mRight;
+      }
+
+      protected virtual Pipe<R, T> GetElsePipe(R value, AsyncResult completeResult)
+      {
+         return mOtherPipe;
+      }
+
       protected override void Process(R value, AsyncResult completeResult)
       {
          Pipe<R,T> pipeToRun = null;
-         //Console.WriteLine("Running predicate on value " + value);
+
          if (mPredicate(value))
-            pipeToRun = mRight;
+            pipeToRun = GetThenPipe(value, completeResult);
          else
-            pipeToRun = mOtherPipe;
+            pipeToRun = GetElsePipe(value, completeResult);
 
          RunPipe(pipeToRun, value, completeResult);
       }
@@ -380,29 +437,26 @@ namespace PipesCore
    
    internal class LoopingPipe<I, R, T> : ConditionalPipe<I, R, T>
    {
-      protected I mInput;
-
-      public LoopingPipe(Pipe<I, R> inPipe, Pipe<R, T> elsePipe, _Func<R, Boolean> predicate) : base(inPipe, null, elsePipe, predicate) 
+      // Capture input state in the result, this way our pipe is fully threadsafe.
+      protected class LoopingResult : ConnectedResult
       {
-         mRight = BuildLoop();
+         public LoopingResult(AsyncCallback cb, Object state) : base(cb, state) { }
+         public I Input;
       }
 
-      public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
+      public LoopingPipe(Pipe<I, R> inPipe, Pipe<R, T> elsePipe, _Func<R, Boolean> predicate) : base(inPipe, null, elsePipe, predicate) {      }
+
+      protected override ConnectedPipe<I, R, T>.ConnectedResult CreateResult(I input, AsyncCallback cb, object state)
       {
-         mInput = input; // capture input for looping
-         return base.BeginFlow(input, cb, state);
+         LoopingResult tResult = new LoopingResult(cb, state);
+         tResult.Input = input;
+         return tResult;
       }
 
-      protected virtual Pipe<R, T> BuildLoop()
+      protected override Pipe<R, T> GetThenPipe(R value, AsyncResult completeResult)
       {
-         return Pipes.Create<R, T>((i, cb, o) => this.BeginFlow(mInput, cb, o), (i, r) => this.EndFlow(mInput, r));
-      }
-
-      public override T EndFlow(I input, IAsyncResult result)
-      {
-         return base.EndFlow(input, result);
+         LoopingResult tResult = (LoopingResult)completeResult;
+         return Pipes.Create<R, T>((r, cb, s) => this.BeginFlow(tResult.Input, cb, s), (r, ar) => this.EndFlow(tResult.Input, ar));
       }
    }
-
-
 }

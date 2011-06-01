@@ -221,13 +221,13 @@ namespace PipesCore
          return new DelegatePipe<I, T>(BeginFlow, (i, r) => filter(EndFlow(i, r)));
       }
 
-      public  Pipe<I, T> Finally(_Action<I> finalAction)
+      public virtual Pipe<I, T> Finally(_Action<I> finalAction)
       {
          mFinalAction = finalAction;
          return this;
       }
 
-      public  Pipe<I, T> Dispose()
+      public virtual Pipe<I, T> Dispose()
       {
          if (!typeof(IDisposable).IsAssignableFrom(typeof(I)))
             throw new InvalidOperationException(String.Format("Type {0} is not IDisposable.", typeof(I).Name));
@@ -236,7 +236,7 @@ namespace PipesCore
       }
 
       // keep?
-      public  _Func<I, T> ToFunc()
+      public _Func<I, T> ToFunc()
       {
          return (i) => EndFlow(i, BeginFlow(i, null, null));
       }
@@ -362,6 +362,11 @@ namespace PipesCore
       public override T EndFlow(I input, IAsyncResult result)
       {
          return InnerPipe.EndFlow(input, result);
+      }
+
+      public override Pipe<I, T> Finally(_Action<I> finalAction)
+      {
+         return InnerPipe.Finally(finalAction);
       }
    }
 

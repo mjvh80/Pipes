@@ -319,7 +319,14 @@ namespace PipesCore
 
       public override T EndFlow(I input, IAsyncResult result)
       {
-         return mFunction(input);
+         try
+         {
+            return mFunction(input);
+         }
+         finally
+         {
+            DoFinally(input);
+         }
       }
    }
 
@@ -341,7 +348,14 @@ namespace PipesCore
 
       public override T EndFlow(I input, IAsyncResult result)
       {
-         return mFilter(base.EndFlow(input, result));
+         try
+         {
+            return mFilter(base.EndFlow(input, result));
+         }
+         finally
+         {
+            DoFinally(input);
+         }
       }
    }
 

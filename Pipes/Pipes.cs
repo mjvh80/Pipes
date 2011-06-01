@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 
 namespace PipesCore
 {
@@ -49,6 +50,11 @@ namespace PipesCore
         _Func<S, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginWrite, _Func<S, _Action<IAsyncResult>> endWrite)
       {
          return Create<I, Int32>((i, cb, s) => beginRead(i)(buffer, offset, count, cb, s), (i, r) => endRead(i)(r)).Connect((i, cb, s) => beginWrite(target)(buffer, 0, i, cb, s), (i, r) => { endWrite(target)(r); return i; });
+      }
+
+      public static Pipe<I, T> Null<I, T>()
+      {
+         return new NullPipe<I, T>();
       }
 
       public static Pipe<I, T> Create<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<I, IAsyncResult, T> endMethod)
@@ -126,6 +132,28 @@ namespace PipesCore
       public Pipe<I, U> Map<U>(Func<T, U> map)
       {
          return this.Connect(new FunctionPipe<T, U>(map));
+      }
+
+      public Pipe<R, S> With<U, R, S>(U value, Func<U, Pipe<I, T>, Pipe<R, S>> map)
+      {
+         return map(value, this);
+      }
+
+      public Pipe<I, T> With<U>(U value, Func<U, Pipe<I, T>, Pipe<I, T>> map)
+      {
+         return With<U, I, T>(value, map);
+      }
+
+      public Pipe<I, R> WithResult<R>(Func<T, Pipe<I, T>, Pipe<T, R>> map)
+      {
+         AdapterPipe<T, R> tAdapter = new AdapterPipe<T, R>(null);
+
+         return this.Connect<T>(new FunctionPipe<T, T>(t =>
+         {
+            tAdapter.InnerPipe = map(t, this);
+            return t;
+         }))
+            .Connect<R>(tAdapter); // connect an empty adapter, which is created by map
       }
 
       public  Pipe<I, U> Connect<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<T, IAsyncResult, U> endMethod)
@@ -265,6 +293,11 @@ namespace PipesCore
       }
    }
 
+   internal class NullPipe<I, T> : FunctionPipe<I, T>
+   {
+      public NullPipe() : base(i => default(T)) { }
+   }
+
    /// <summary>
    /// Synchronously completing pipe which simply applies a function on input to map to some value.
    /// </summary>
@@ -290,6 +323,11 @@ namespace PipesCore
       }
    }
 
+   internal class IdentityPipe<I> : FunctionPipe<I, I>
+   {
+      public IdentityPipe() : base(i => i) { }
+   }
+
    internal class FilteredPipe<I, T> : DelegatePipe<I, T>
    {
       protected _Func<T, T> mFilter;
@@ -304,6 +342,26 @@ namespace PipesCore
       public override T EndFlow(I input, IAsyncResult result)
       {
          return mFilter(base.EndFlow(input, result));
+      }
+   }
+
+   internal class AdapterPipe<I, T> : Pipe<I, T>
+   {
+      public Pipe<I, T> InnerPipe { get; set; }
+
+      public AdapterPipe(Pipe<I, T> pipe)
+      {
+         InnerPipe = pipe;
+      }
+
+      public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
+      {
+         return InnerPipe.BeginFlow(input, cb, state);
+      }
+
+      public override T EndFlow(I input, IAsyncResult result)
+      {
+         return InnerPipe.EndFlow(input, result);
       }
    }
 

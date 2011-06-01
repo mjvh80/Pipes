@@ -7,7 +7,53 @@ namespace PipesCore
 {
    class Program
    {
-      public static void Main(String[] args)
+      public static void Test()
+      {
+         try {
+            Int32 sBufferSize = 2048;
+            Byte[] tRequestBuffer = new Byte[sBufferSize];
+            MemoryStream tResult = new MemoryStream();
+
+            WebRequest pRequest = WebRequest.Create("http://localhost/asptest/Foo.ashx");
+            pRequest.Method = "POST";
+
+            MemoryStream pSourceOrNull = new MemoryStream();
+            MemoryStream tempStream = new MemoryStream();
+            using (StreamWriter tWriter = new StreamWriter(tempStream))
+            {
+               tWriter.Write("Hello World");
+               tWriter.Flush();
+               tempStream.Position = 0;
+               tempStream.WriteTo(pSourceOrNull);
+            }
+            pSourceOrNull.Position = 0;
+
+
+            var requestPipe = Pipes.Create<Stream, Stream>(pRequest.BeginGetRequestStream, pRequest.EndGetRequestStream)
+               .WithResult((s, pipe) => 
+                  pipe.Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[sBufferSize], __s => pSourceOrNull.BeginRead, __s => pSourceOrNull.EndRead, s.BeginWrite, s.EndWrite).Loop(i => i > 0).Dispose()));
+
+            var finalPipe = (pSourceOrNull == null ? Pipes.Null<Stream, Int32>() : requestPipe)
+               .Connect(pRequest.BeginGetResponse, pRequest.EndGetResponse)
+               .Map(webres => webres.GetResponseStream())
+               .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], s => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(i => i > 0).Dispose())
+               .Map(i => tResult);
+
+            MemoryStream tOut = finalPipe.EndFlow(finalPipe.BeginFlow(null, null));
+            tOut.Position = 0;
+            Console.WriteLine("Got: " + new StreamReader(tResult).ReadToEnd());
+         }
+         catch (Exception e)
+         {
+            Console.WriteLine("ERROR : " + e.Message + Environment.NewLine + e.StackTrace);
+            Console.Read();
+         }
+         Console.Read();
+      }
+
+      public static void Main(String[] args) { Test(); }
+
+      public static void Main2(String[] args)
       {
          try
          {

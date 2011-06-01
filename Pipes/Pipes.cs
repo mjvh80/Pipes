@@ -57,6 +57,31 @@ namespace PipesCore
          return new NullPipe<I, T>();
       }
 
+      public static Pipe<I, I> Identity<I>()
+      {
+         return new IdentityPipe<I>();
+      }
+
+      public static Pipe<I, T> If<I, T>(_Func<I, Boolean> predicate, Pipe<I, T> ifPipe, Pipe<I, T> elsePipe)
+      {
+         return Pipes.Identity<I>().Branch<T>(ifPipe, elsePipe, predicate);
+      }
+
+      public static Pipe<I, T> If<I, T>(Boolean boolVal, Pipe<I, T> ifPipe, Pipe<I, T> elsePipe)
+      {
+         return Pipes.Identity<I>().Branch<T>(ifPipe, elsePipe, i => boolVal);
+      }
+
+      public static Pipe<R, S> Cast<I, T, R, S>(Pipe<I, T> pipe)
+      {
+         return Pipes.Identity<R>().Map(r => _Cast<R, I>(r)).Connect(pipe).Map<S>(t => _Cast<T, S>(t));
+      }
+
+      private static V _Cast<U, V>(U value)
+      {
+         return (V)(Object)value; // any way to avoid this possible box?
+      }
+
       public static Pipe<I, T> Create<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<I, IAsyncResult, T> endMethod)
       {
          return new DelegatePipe<I, T>(beginMethod, endMethod);
@@ -129,32 +154,54 @@ namespace PipesCore
 
       #region Pipe Operations
 
-      public Pipe<I, U> Map<U>(Func<T, U> map)
+      public Pipe<I, U> Map<U>(_Func<T, U> map)
       {
          return this.Connect(new FunctionPipe<T, U>(map));
       }
 
-      public Pipe<R, S> With<U, R, S>(U value, Func<U, Pipe<I, T>, Pipe<R, S>> map)
+      public Pipe<R, S> With<U, R, S>(U value, _Func<U, Pipe<I, T>, Pipe<R, S>> map)
       {
          return map(value, this);
       }
 
-      public Pipe<I, T> With<U>(U value, Func<U, Pipe<I, T>, Pipe<I, T>> map)
+      public Pipe<I, R> With<U, R>(U value, _Func<U, Pipe<I, T>, Pipe<I, R>> map)
+      {
+         return With<U, I, R>(value, map);
+      }
+
+      public Pipe<I, T> With<U>(U value, _Func<U, Pipe<I, T>, Pipe<I, T>> map)
       {
          return With<U, I, T>(value, map);
       }
 
-      public Pipe<I, R> WithResult<R>(Func<T, Pipe<I, T>, Pipe<T, R>> map)
+      public Pipe<I, R> WithResult<R>(_Func<T, Pipe<I, T>, Pipe<T, R>> map)
       {
-         AdapterPipe<T, R> tAdapter = new AdapterPipe<T, R>(null);
+         AdapterPipe<T, R> tAdapter = new AdapterPipe<T, R>();
 
          return this.Connect<T>(new FunctionPipe<T, T>(t =>
          {
-            tAdapter.InnerPipe = map(t, this);
+            tAdapter.InnerPipe = map(t, this); // todo: check for null?
             return t;
          }))
             .Connect<R>(tAdapter); // connect an empty adapter, which is created by map
       }
+
+      //public Pipe<R, S> WithResult2<R, S>(_Func<T, Pipe<I, T>, Pipe<R, S>> map)
+      //{
+      //   // Connect this to the result, through an adapter.
+         
+      //   // Bridge this pipe to the mapped result.
+      //   _Func<T, Pipe<I, T>, Pipe<T, S>> tNewMap = (t, pipe) => new NullPipe<T, R>().Connect(map(t, pipe));
+
+      //   // Connect it up now.
+      //}
+
+      //public Pipe<I, R> WithResult<R, S>(_Func<T, Pipe<I, T>, Pipe<R, S>> map)
+      //{
+      //   AdapterPipe<T, R> tAdapter = new AdapterPipe<T, R>(null);
+
+        
+      //}
 
       public  Pipe<I, U> Connect<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<T, IAsyncResult, U> endMethod)
       {
@@ -303,9 +350,9 @@ namespace PipesCore
    /// </summary>
    internal class FunctionPipe<I, T> : Pipe<I, T>
    {
-      protected Func<I, T> mFunction;
+      protected _Func<I, T> mFunction;
 
-      public FunctionPipe(Func<I, T> function)
+      public FunctionPipe(_Func<I, T> function)
       {
          mFunction = function;
       }
@@ -361,10 +408,14 @@ namespace PipesCore
 
    internal class AdapterPipe<I, T> : Pipe<I, T>
    {
-      public Pipe<I, T> InnerPipe { get; set; }
+      public volatile Pipe<I, T> InnerPipe;
+
+      public AdapterPipe() { InnerPipe = null; }
 
       public AdapterPipe(Pipe<I, T> pipe)
       {
+         if (pipe == null)
+            throw new ArgumentNullException();
          InnerPipe = pipe;
       }
 
@@ -375,7 +426,7 @@ namespace PipesCore
 
       public override T EndFlow(I input, IAsyncResult result)
       {
-         return InnerPipe.EndFlow(input, result);
+         return InnerPipe.EndFlow(input, result);         
       }
 
       public override Pipe<I, T> Finally(_Action<I> finalAction)

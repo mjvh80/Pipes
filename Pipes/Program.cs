@@ -9,12 +9,13 @@ namespace PipesCore
    {
       public static void Test()
       {
-         try {
+         try
+         {
             Int32 sBufferSize = 2048;
             Byte[] tRequestBuffer = new Byte[sBufferSize];
-            MemoryStream tResult = new MemoryStream();
+            //    MemoryStream tResult = new MemoryStream();
 
-            WebRequest pRequest = WebRequest.Create("http://localhost/asptest/Foo.ashx");
+            WebRequest pRequest = WebRequest.Create("http://localhost/asptest/echo.ashx");
             pRequest.Method = "POST";
 
             MemoryStream pSourceOrNull = new MemoryStream();
@@ -29,19 +30,31 @@ namespace PipesCore
             pSourceOrNull.Position = 0;
 
 
-            var requestPipe = Pipes.Create<Stream, Stream>(pRequest.BeginGetRequestStream, pRequest.EndGetRequestStream)
-               .WithResult((s, pipe) => 
-                  pipe.Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[sBufferSize], __s => pSourceOrNull.BeginRead, __s => pSourceOrNull.EndRead, s.BeginWrite, s.EndWrite).Loop(i => i > 0).Dispose()));
+            var requestPipe =
+               Pipes.Create<Stream, Stream>(pRequest.BeginGetRequestStream, pRequest.EndGetRequestStream)
+                    .WithResult((s, pipe) =>
+                        Pipes.ReadWrite<Stream, Int32>(new Byte[sBufferSize], __s => pSourceOrNull.BeginRead, __s => pSourceOrNull.EndRead, s.BeginWrite, s.EndWrite)
+                             .Loop(i => i > 0)
+                             .Dispose());
 
-            var finalPipe = (pSourceOrNull == null ? Pipes.Null<Stream, Int32>() : requestPipe)
+            
+
+            var finalPipe =   (pSourceOrNull == null ? Pipes.Null<Stream, Int32>() : requestPipe)
                .Connect(pRequest.BeginGetResponse, pRequest.EndGetResponse)
-               .Map(webres => webres.GetResponseStream())
-               .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], s => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(i => i > 0).Dispose())
-               .Map(i => tResult);
+               .WithResult((wr, pipe) =>
+               {
+                  Stream tTargetStream = wr.GetResponseStream(); // don't need to dispose -> webresponse will do this
+                  MemoryStream tResultStream = new MemoryStream((Int32)(wr.ContentLength <= 0 ? 1024 : wr.ContentLength)); // todo will want to max
+                  return
+                     Pipes.ReadWrite<WebResponse, Int32>(new Byte[1024], s => tTargetStream.BeginRead, s => tTargetStream.EndRead, tResultStream.BeginWrite, tResultStream.EndWrite)
+                          .Loop(i => i > 0)
+                          .Dispose() // get rid of webresponse
+                          .Map(i => tResultStream);
+               });
 
             MemoryStream tOut = finalPipe.EndFlow(finalPipe.BeginFlow(null, null));
             tOut.Position = 0;
-            Console.WriteLine("Got: " + new StreamReader(tResult).ReadToEnd());
+            Console.WriteLine("Got: " + new StreamReader(tOut).ReadToEnd());
          }
          catch (Exception e)
          {

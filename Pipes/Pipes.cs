@@ -470,9 +470,7 @@ namespace PipesCore
 
       public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
       {
-         IAsyncResult tResult = new _DummyAsyncResult(true, state);
-         cb(tResult);
-         return tResult;
+         return new _DummyAsyncResult(true, cb, state);
       }
 
       public override T EndFlow(I input, IAsyncResult result)
@@ -515,9 +513,7 @@ namespace PipesCore
             return mValueAction.BeginInvoke(cb, state);
          else
          {
-            IAsyncResult tResult = new _DummyAsyncResult(true, state);
-            cb(tResult);
-            return tResult;
+            return new _DummyAsyncResult(true, cb, state);
          }
       }
 

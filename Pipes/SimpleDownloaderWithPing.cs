@@ -134,7 +134,7 @@ namespace PipesCore
 
     
 
-      protected class DownloadResult : WrappingAsyncResult<IAsyncResult>
+      internal class DownloadResult : WrappingAsyncResult<IAsyncResult>
       {
          public volatile HttpWebRequest Request;
          public volatile Pipe<Stream, Stream> Pipe;

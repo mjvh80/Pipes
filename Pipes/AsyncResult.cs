@@ -10,7 +10,7 @@ namespace PipesCore
    /// an extra state object is desired. Thus the state object should be the one received by a (possible) invoker
    /// whereas the caller state is the actual state one may wish to pass along.
    /// </summary>
-   public class AsyncResult : IAsyncResult, IDisposable
+   internal class AsyncResult : IAsyncResult, IDisposable
    {
       protected Object mState;
       protected ManualResetEvent mHandle;

@@ -4,7 +4,7 @@ using System.Text;
 
 namespace PipesCore
 {
-   public class WrappingAsyncResult<A> : IAsyncResult where A : IAsyncResult
+   internal class WrappingAsyncResult<A> : IAsyncResult where A : IAsyncResult
    {
       protected A mInnerResult;
 

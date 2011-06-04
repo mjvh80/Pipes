@@ -67,7 +67,7 @@ namespace PipesCore
 
                // If an exception happens in the callback, this thread won't be affected.
                if (mUserCallback != null)
-#if DEBUG
+#if DEBUG // some stack trace, pleeeaase
                   mUserCallback(this);
 #else
                   ThreadPool.QueueUserWorkItem(o => mUserCallback(this));

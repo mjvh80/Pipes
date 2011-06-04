@@ -40,10 +40,13 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AsyncResult.cs" />
+    <Compile Include="SimpleDownloaderWithPing.cs" />
     <Compile Include="DummyAsyncResult.cs" />
     <Compile Include="Pipes.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SimpleDownloader.cs" />
+    <Compile Include="WrappingAsyncResult.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config">

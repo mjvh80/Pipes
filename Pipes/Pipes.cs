@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Threading;
 
 namespace PipesCore
 {
@@ -26,6 +27,8 @@ namespace PipesCore
 
    public static class Pipes
    {
+      #region Reading and Writing
+
       public static Pipe<I, Int32> ReadWrite<I, T>(Byte[] buffer, _Func<I, _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult>> beginRead, _Func<I, _Func<IAsyncResult, Int32>> endRead,
         _Func<Byte[], Int32, Int32, AsyncCallback, Object, IAsyncResult> beginWrite, _Action<IAsyncResult> endWrite)
       {
@@ -52,6 +55,8 @@ namespace PipesCore
          return Create<I, Int32>((i, cb, s) => beginRead(i)(buffer, offset, count, cb, s), (i, r) => endRead(i)(r)).Connect((i, cb, s) => beginWrite(target)(buffer, 0, i, cb, s), (i, r) => { endWrite(target)(r); return i; });
       }
 
+      #endregion
+
       public static Pipe<I, T> Null<I, T>()
       {
          return new NullPipe<I, T>();
@@ -64,23 +69,15 @@ namespace PipesCore
 
       public static Pipe<I, T> If<I, T>(_Func<I, Boolean> predicate, Pipe<I, T> ifPipe, Pipe<I, T> elsePipe)
       {
-         return Pipes.Identity<I>().Branch<T>(ifPipe, elsePipe, predicate);
+         return Pipes.Identity<I>().Branch<T>(predicate, ifPipe, elsePipe);
       }
 
       public static Pipe<I, T> If<I, T>(Boolean boolVal, Pipe<I, T> ifPipe, Pipe<I, T> elsePipe)
       {
-         return Pipes.Identity<I>().Branch<T>(ifPipe, elsePipe, i => boolVal);
+         return Pipes.Identity<I>().Branch<T>(boolVal, ifPipe, elsePipe);
       }
 
-      public static Pipe<R, S> Cast<I, T, R, S>(Pipe<I, T> pipe)
-      {
-         return Pipes.Identity<R>().Map(r => _Cast<R, I>(r)).Connect(pipe).Map<S>(t => _Cast<T, S>(t));
-      }
-
-      private static V _Cast<U, V>(U value)
-      {
-         return (V)(Object)value; // any way to avoid this possible box?
-      }
+      #region Creation
 
       public static Pipe<I, T> Create<I, T>(_Func<I, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<I, IAsyncResult, T> endMethod)
       {
@@ -112,6 +109,20 @@ namespace PipesCore
          return Create<I, T>((i, c, s) => beginMethod(c, s), (i, r) => { endMethod(r); return default(T); }); // ignore output 
       }
 
+      #endregion
+
+      #region Coalescing
+
+      public static Pipe<R, S> Cast<I, T, R, S>(Pipe<I, T> pipe)
+      {
+         return new FunctionPipe<R, I>(r => _Cast<R, I>(r)).Connect(pipe).Map<S>(t => _Cast<T, S>(t));
+      }
+
+      internal static V _Cast<U, V>(U value)
+      {
+         return (V)(Object)value; // any way to avoid this possible box?
+      }
+
       public static Pipe<I, T> ToPipe<I, T>(this _Func<I, T> del)
       {
          return Create<I, T>((i, cb, o) => del.BeginInvoke(i, cb, o), (r) => del.EndInvoke(r));
@@ -125,6 +136,19 @@ namespace PipesCore
       public static Pipe<T, T> ToPipe<T>(this _Action<T> del)
       {
          return CreateEnd<T, T>((t, cb, s) => del.BeginInvoke(t, cb, s), r => del.EndInvoke(r));
+      }
+
+      #endregion
+
+      public static Pipe<I, I> WaitOnPool<I>(Object syncRoot)
+      {
+         return WaitOnPoolIf<I>(true, syncRoot);
+      }
+
+      // Enters the syncroot on a threadpool thread.
+      public static Pipe<I, I> WaitOnPoolIf<I>(Boolean condition, Object syncRoot)
+      {
+         return Pipes.Identity<I>().WaitOnPoolIf(condition, syncRoot);
       }
    }
 
@@ -154,10 +178,80 @@ namespace PipesCore
 
       #region Pipe Operations
 
+      public Pipe<I, T> WaitOnPool(Object syncRoot)
+      {
+         return this.WaitOnPoolIf(true, syncRoot);
+      }
+
+      /// <summary>
+      /// If condition is true, will enter the syncroot on a threadpool thread.
+      /// </summary>
+      /// <param name="condition"></param>
+      /// <param name="syncRoot"></param>
+      /// <returns></returns>
+      public Pipe<I, T> WaitOnPoolIf(Boolean condition, Object syncRoot)
+      {
+         if (syncRoot == null)
+            throw new ArgumentNullException("syncRoot");
+
+         if (condition)
+         {
+            _Func<T, T> map = t =>
+            {
+               lock (syncRoot)
+                  return t;
+            };
+
+            return this.Connect(map.ToPipe()); // begin must block, not end
+         }
+         else
+            return this;
+      }
+
+      #region Mapping
+
       public Pipe<I, U> Map<U>(_Func<T, U> map)
       {
          return this.Connect(new FunctionPipe<T, U>(map));
       }
+
+      public Pipe<I, T> Map(_Func<T, T> map)
+      {
+         return new FilteredPipe<I, T>(this, map);
+      }
+
+      public Pipe<I, T> MapIf(Boolean condition, _Func<T, T> map)
+      {
+         return condition ? this.Map(map) : this;
+      }
+
+      public Pipe<I, T> Do(_Action action)
+      {
+         return this.Map(t => { action(); return t; });
+      }
+
+      public Pipe<I, T> Do(_Action<T> action)
+      {
+         return this.Map(t => { action(t); return t; });
+      }
+
+      public Pipe<I, T> DoOnThreadPool(_Action<T> action)
+      {
+         return this.Map(t =>
+         {
+            ThreadPool.QueueUserWorkItem(o => action(t));
+            return t;
+         });
+      }
+
+      public Pipe<I, T> DoIf(Boolean condition, _Action action)
+      {
+         return this.MapIf(condition, t => { action(); return t; });
+      }
+
+      #endregion
+
+      #region With
 
       public Pipe<R, S> With<U, R, S>(U value, _Func<U, Pipe<I, T>, Pipe<R, S>> map)
       {
@@ -186,22 +280,9 @@ namespace PipesCore
             .Connect<R>(tAdapter); // connect an empty adapter, which is created by map
       }
 
-      //public Pipe<R, S> WithResult2<R, S>(_Func<T, Pipe<I, T>, Pipe<R, S>> map)
-      //{
-      //   // Connect this to the result, through an adapter.
-         
-      //   // Bridge this pipe to the mapped result.
-      //   _Func<T, Pipe<I, T>, Pipe<T, S>> tNewMap = (t, pipe) => new NullPipe<T, R>().Connect(map(t, pipe));
+      #endregion
 
-      //   // Connect it up now.
-      //}
-
-      //public Pipe<I, R> WithResult<R, S>(_Func<T, Pipe<I, T>, Pipe<R, S>> map)
-      //{
-      //   AdapterPipe<T, R> tAdapter = new AdapterPipe<T, R>(null);
-
-        
-      //}
+      #region Connecting
 
       public  Pipe<I, U> Connect<U>(_Func<T, AsyncCallback, Object, IAsyncResult> beginMethod, _Func<T, IAsyncResult, U> endMethod)
       {
@@ -238,35 +319,56 @@ namespace PipesCore
          return this.Connect(Pipes.CreateEnd<T, U>(beginMethod, endMethod));
       }
 
+      #endregion
+
+      #region Branching
+
       public  Pipe<I, T> Loop(_Func<T, Boolean> predicate)
       {
-         return Loop(t => t, predicate);
+         return Loop(predicate, t => t);
       }
 
-      public  Pipe<I, T> Loop(_Func<T, T> next, _Func<T, Boolean> predicate)
+      public  Pipe<I, T> Loop( _Func<T, Boolean> predicate, _Func<T, T> next)
       {
-         return Loop(next.ToPipe(), predicate);
+         return Loop(predicate, next.ToPipe());
       }
 
-      public  Pipe<I, T> Loop(Pipe<T, T> next, _Func<T, Boolean> predicate)
+      public  Pipe<I, T> Loop(_Func<T, Boolean> predicate, Pipe<T, T> next)
       {
-         return Loop<T>(next, predicate);
+         return Loop<T>(predicate, next);
       }
 
-      public Pipe<I, R> Loop<R>(Pipe<T, R> nextPipe, _Func<T, Boolean> predicate)
+      public Pipe<I, R> Loop<R>(_Func<T, Boolean> predicate, Pipe<T, R> nextPipe)
       {
          return new LoopingPipe<I, T, R>(this, nextPipe, predicate);
       }
      
-      public  Pipe<I, U> Branch<U>(Pipe<T, U> ifPipe, Pipe<T, U> elsePipe, _Func<T, Boolean> predicate)
+      public  Pipe<I, U> Branch<U>(_Func<T, Boolean> predicate, Pipe<T, U> ifPipe, Pipe<T, U> elsePipe)
       {
-         return new ConditionalPipe<I, T, U>(this, ifPipe, elsePipe, predicate);
+         return new ConditionalPipe<I, T, U>(predicate, this, ifPipe, elsePipe);
       }
 
-      public  Pipe<I, T> Filter(_Func<T, T> filter)
+      public Pipe<I, U> Branch<U>(Boolean predVal, Pipe<T, U> ifPipe, Pipe<T, U> elsePipe)
       {
-         return new DelegatePipe<I, T>(BeginFlow, (i, r) => filter(EndFlow(i, r)));
+         return new ConditionalPipe<I, T, U>(r => predVal, this, ifPipe, elsePipe);
       }
+
+      public Pipe<I, U> Branch<U>(Boolean predVal, Pipe<T, U> ifPipe)
+      {
+         return this.Branch<U>(predVal, ifPipe, new NullPipe<T, U>());
+      }
+
+      public Pipe<I, T> Branch(Boolean predVal, Pipe<T, T> ifPipe)
+      {
+         return predVal ? this.Connect(ifPipe) : this;
+      }
+
+      public Pipe<I, U> Branch<U>(_Func<T, Boolean> predicate, Pipe<T, U> ifPipe)
+      {
+         return this.Branch<U>(predicate, ifPipe, new NullPipe<T, U>());
+      }
+
+      #endregion
 
       public virtual Pipe<I, T> Finally(_Action<I> finalAction)
       {
@@ -280,6 +382,13 @@ namespace PipesCore
             throw new InvalidOperationException(String.Format("Type {0} is not IDisposable.", typeof(I).Name));
 
          return Finally(i => ((IDisposable)i).Dispose());
+      }
+
+      #region Coalescing
+
+      public Pipe<R, S> Cast<R, S>()
+      {
+         return new FunctionPipe<R, I>(r => Pipes._Cast<R, I>(r)).Connect(this).Map<S>(t => Pipes._Cast<T, S>(t));
       }
 
       // keep?
@@ -307,6 +416,8 @@ namespace PipesCore
       {
          return () => pipe.EndFlow(pipe.BeginFlow(null, null));
       }
+
+      #endregion
 
       #endregion
    }
@@ -377,6 +488,48 @@ namespace PipesCore
       }
    }
 
+   
+   internal class ValuePipe<V> : Pipe<V, V>  where V : class
+   {
+      protected V mValue;
+      protected Object mSyncRoot;
+
+      protected _Func<V> mValueAction;
+
+      public ValuePipe(Object syncRoot)
+      {
+         if (syncRoot == null)
+            throw new ArgumentNullException();
+
+         mValueAction = () =>
+         {
+            lock (syncRoot)
+               return mValue;
+         };
+      }
+
+      public override IAsyncResult BeginFlow(V input, AsyncCallback cb, object state)
+      {
+         mValue = input;
+         if (input == null)
+            return mValueAction.BeginInvoke(cb, state);
+         else
+         {
+            IAsyncResult tResult = new _DummyAsyncResult(true, state);
+            cb(tResult);
+            return tResult;
+         }
+      }
+
+      public override V EndFlow(V input, IAsyncResult result)
+      {
+         if (result is _DummyAsyncResult)
+            return mValue;
+         else
+            return mValueAction.EndInvoke(result);
+      }
+   }
+
    internal class IdentityPipe<I> : FunctionPipe<I, I>
    {
       public IdentityPipe() : base(i => i) { }
@@ -384,26 +537,31 @@ namespace PipesCore
 
    internal class FilteredPipe<I, T> : DelegatePipe<I, T>
    {
-      protected _Func<T, T> mFilter;
+      //protected _Func<T, T> mFilter;
 
-      public FilteredPipe(Pipe<I, T> pipe, _Func<T, T> filter) : base(pipe.BeginFlow, pipe.EndFlow)
+      public FilteredPipe(Pipe<I, T> pipe, _Func<T, T> filter) : base(pipe.BeginFlow, (i, r) => filter(pipe.EndFlow(i, r)))
       {
-         mFilter = filter;
+         //mFilter = filter;
       }
+
+      // todo: more elaborate?
+      //public FilteredPipe(Pipe<I, T> pipe, _Func<I, I> startFilter, _Func<T, T> endFilter) : 
+      //   base(startFilter == null ? pipe.BeginFlow : (i, cb, o) => pipe.BeginFlow(startFilter(i), cb, o), 
+      //        endFilter == null ? pipe.EndFlow : (i, r) => endFilter(pipe.ndflo
 
       public FilteredPipe(Pipe<I, T> pipe, Pipe<T, T> filterPipe) : this(pipe, filterPipe.ToFunc()) { }
 
-      public override T EndFlow(I input, IAsyncResult result)
-      {
-         try
-         {
-            return mFilter(base.EndFlow(input, result));
-         }
-         finally
-         {
-            DoFinally(input);
-         }
-      }
+      //public override T EndFlow(I input, IAsyncResult result)
+      //{
+      //   try
+      //   {
+      //      return mFilter(base.EndFlow(input, result));
+      //   }
+      //   finally
+      //   {
+      //      DoFinally(input); // our finally, not the captured pipe. It will finalize in its EndFlow.
+      //   }
+      //}
    }
 
    internal class AdapterPipe<I, T> : Pipe<I, T>
@@ -534,7 +692,7 @@ namespace PipesCore
       protected _Func<R, Boolean> mPredicate;
       protected Pipe<R, T> mOtherPipe;
 
-      public ConditionalPipe(Pipe<I, R> inPipe, Pipe<R, T> ifPipe, Pipe<R,T> elsePipe, _Func<R, Boolean> predicate) : base(inPipe, ifPipe)
+      public ConditionalPipe( _Func<R, Boolean> predicate, Pipe<I, R> inPipe, Pipe<R, T> ifPipe, Pipe<R,T> elsePipe) : base(inPipe, ifPipe)
       {
          mPredicate = predicate;
          mOtherPipe = elsePipe;
@@ -572,7 +730,7 @@ namespace PipesCore
          public I Input;
       }
 
-      public LoopingPipe(Pipe<I, R> inPipe, Pipe<R, T> elsePipe, _Func<R, Boolean> predicate) : base(inPipe, null, elsePipe, predicate) {      }
+      public LoopingPipe(Pipe<I, R> inPipe, Pipe<R, T> elsePipe, _Func<R, Boolean> predicate) : base(predicate, inPipe, null, elsePipe) {      }
 
       protected override ConnectedPipe<I, R, T>.ConnectedResult CreateResult(I input, AsyncCallback cb, object state)
       {

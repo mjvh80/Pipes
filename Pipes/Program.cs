@@ -2,11 +2,53 @@
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Threading;
+using System.Diagnostics;
 
 namespace PipesCore
 {
    class Program
    {
+
+      public static void Test2()
+      {
+         Int32 tTestCount = 1000;
+
+         SimpleDowloader tDownloader = new SimpleDowloader();
+         Int32 tCount = 0;
+         Object tLock = new Object();
+         Int32 tMaxThreadCount = 1;
+
+         Stopwatch tTimer = Stopwatch.StartNew();
+
+         AsyncCallback tPrintResult = r =>
+            {
+               lock (tLock) // ensure our writeline is serialized
+               {
+                  var tStream = tDownloader.EndDownload(r);
+                  tStream.Position = 0;
+                  tMaxThreadCount = Math.Max(tMaxThreadCount, System.Diagnostics.Process.GetCurrentProcess().Threads.Count);
+                  tCount += 1; // in a lock
+                  Console.WriteLine("Got: " + new StreamReader(tStream).ReadToEnd() + " count = " + tCount + " max = " + tMaxThreadCount);
+
+                  if (tCount == tTestCount)
+                  {
+                     Console.WriteLine();
+                     Console.WriteLine("Time taken: " + tTimer.ElapsedMilliseconds + "ms");
+                  }
+                  
+               }
+            };
+
+         // Fire n requests.
+         for(Int32 i = 0; i < tTestCount; i++)
+            tDownloader.BeginDownload("http://localhost/asptest/echo.ashx?id=" + i, tPrintResult, null);
+
+        
+         Console.Read();
+      }
+
+
       public static void Test()
       {
          try
@@ -37,8 +79,6 @@ namespace PipesCore
                              .Loop(i => i > 0)
                              .Dispose());
 
-            
-
             var finalPipe =   (pSourceOrNull == null ? Pipes.Null<Stream, Int32>() : requestPipe)
                .Connect(pRequest.BeginGetResponse, pRequest.EndGetResponse)
                .WithResult((wr, pipe) =>
@@ -47,12 +87,15 @@ namespace PipesCore
                   MemoryStream tResultStream = new MemoryStream((Int32)(wr.ContentLength <= 0 ? 1024 : wr.ContentLength)); // todo will want to max
                   return
                      Pipes.ReadWrite<WebResponse, Int32>(new Byte[1024], s => tTargetStream.BeginRead, s => tTargetStream.EndRead, tResultStream.BeginWrite, tResultStream.EndWrite)
+                          .Do(() => Console.WriteLine("ping..."))
                           .Loop(i => i > 0)
                           .Dispose() // get rid of webresponse
                           .Map(i => tResultStream);
                });
 
-            MemoryStream tOut = finalPipe.EndFlow(finalPipe.BeginFlow(null, null));
+            IAsyncResult tResult = finalPipe.BeginFlow(null, null);
+            Console.WriteLine("foo");
+            MemoryStream tOut = finalPipe.EndFlow(tResult);
             tOut.Position = 0;
             Console.WriteLine("Got: " + new StreamReader(tOut).ReadToEnd());
          }
@@ -64,7 +107,7 @@ namespace PipesCore
          Console.Read();
       }
 
-      public static void Main(String[] args) { Test(); }
+      public static void Main(String[] args) { Test2(); }
 
       public static void Main2(String[] args)
       {

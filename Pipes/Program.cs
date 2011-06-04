@@ -18,6 +18,8 @@ namespace PipesCore
          Int32 tCount = 0;
          Object tLock = new Object();
          Int32 tMaxThreadCount = 1;
+         //Process tProcess = System.Diagnostics.Process.GetCurrentProcess();
+         //Int64 tStartMem = tProcess.WorkingSet64;
 
          Stopwatch tTimer = Stopwatch.StartNew();
 
@@ -28,8 +30,9 @@ namespace PipesCore
                   var tStream = tDownloader.EndDownload(r);
                   tStream.Position = 0;
                   tMaxThreadCount = Math.Max(tMaxThreadCount, System.Diagnostics.Process.GetCurrentProcess().Threads.Count);
+
                   tCount += 1; // in a lock
-                  Console.WriteLine("Got: " + new StreamReader(tStream).ReadToEnd() + " count = " + tCount + " max = " + tMaxThreadCount);
+                  Console.WriteLine("Got: " + new StreamReader(tStream).ReadToEnd() + " count = " + tCount + " max = " + tMaxThreadCount); // + " memdelta = " + tMem);
 
                   if (tCount == tTestCount)
                   {

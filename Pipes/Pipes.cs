@@ -170,6 +170,14 @@ namespace PipesCore
          return EndFlow(default(I), result);
       }
 
+      protected virtual A CheckAsyncResult<A>(IAsyncResult result) where A : class, IAsyncResult
+      {
+         A tActualResult = result as A;
+         if (tActualResult == null)
+            throw new InvalidOperationException("Invalid asyncresult.");
+         return tActualResult;
+      }
+
       protected virtual void DoFinally(I input)
       {
          if (mFinalAction != null)
@@ -461,6 +469,11 @@ namespace PipesCore
    /// </summary>
    internal class FunctionPipe<I, T> : Pipe<I, T>
    {
+      protected class _FunctionAsyncResult : _DummyAsyncResult // use _FunctionAsyncResult type as an "identifier" on the correct asyncresult
+      {
+         public _FunctionAsyncResult(AsyncCallback cb, Object state) : base(true, cb, state) { }
+      }
+
       protected _Func<I, T> mFunction;
 
       public FunctionPipe(_Func<I, T> function)
@@ -470,59 +483,20 @@ namespace PipesCore
 
       public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
       {
-         return new _DummyAsyncResult(true, cb, state);
+         return new _FunctionAsyncResult(cb, state);
       }
 
       public override T EndFlow(I input, IAsyncResult result)
       {
          try
          {
+            CheckAsyncResult<_FunctionAsyncResult>(result);
             return mFunction(input);
          }
          finally
          {
             DoFinally(input);
          }
-      }
-   }
-
-   
-   internal class ValuePipe<V> : Pipe<V, V>  where V : class
-   {
-      protected V mValue;
-      protected Object mSyncRoot;
-
-      protected _Func<V> mValueAction;
-
-      public ValuePipe(Object syncRoot)
-      {
-         if (syncRoot == null)
-            throw new ArgumentNullException();
-
-         mValueAction = () =>
-         {
-            lock (syncRoot)
-               return mValue;
-         };
-      }
-
-      public override IAsyncResult BeginFlow(V input, AsyncCallback cb, object state)
-      {
-         mValue = input;
-         if (input == null)
-            return mValueAction.BeginInvoke(cb, state);
-         else
-         {
-            return new _DummyAsyncResult(true, cb, state);
-         }
-      }
-
-      public override V EndFlow(V input, IAsyncResult result)
-      {
-         if (result is _DummyAsyncResult)
-            return mValue;
-         else
-            return mValueAction.EndInvoke(result);
       }
    }
 
@@ -533,12 +507,7 @@ namespace PipesCore
 
    internal class FilteredPipe<I, T> : DelegatePipe<I, T>
    {
-      //protected _Func<T, T> mFilter;
-
-      public FilteredPipe(Pipe<I, T> pipe, _Func<T, T> filter) : base(pipe.BeginFlow, (i, r) => filter(pipe.EndFlow(i, r)))
-      {
-         //mFilter = filter;
-      }
+      public FilteredPipe(Pipe<I, T> pipe, _Func<T, T> filter) : base(pipe.BeginFlow, (i, r) => filter(pipe.EndFlow(i, r))) { }
 
       // todo: more elaborate?
       //public FilteredPipe(Pipe<I, T> pipe, _Func<I, I> startFilter, _Func<T, T> endFilter) : 
@@ -546,18 +515,6 @@ namespace PipesCore
       //        endFilter == null ? pipe.EndFlow : (i, r) => endFilter(pipe.ndflo
 
       public FilteredPipe(Pipe<I, T> pipe, Pipe<T, T> filterPipe) : this(pipe, filterPipe.ToFunc()) { }
-
-      //public override T EndFlow(I input, IAsyncResult result)
-      //{
-      //   try
-      //   {
-      //      return mFilter(base.EndFlow(input, result));
-      //   }
-      //   finally
-      //   {
-      //      DoFinally(input); // our finally, not the captured pipe. It will finalize in its EndFlow.
-      //   }
-      //}
    }
 
    internal class AdapterPipe<I, T> : Pipe<I, T>
@@ -585,7 +542,8 @@ namespace PipesCore
 
       public override Pipe<I, T> Finally(_Action<I> finalAction)
       {
-         return InnerPipe.Finally(finalAction);
+         InnerPipe.Finally(finalAction);
+         return this;
       }
    }
 
@@ -600,7 +558,6 @@ namespace PipesCore
 
       protected Pipe<I, R> mLeft;
       protected Pipe<R, T> mRight;
-      //protected T mValue;
 
       public ConnectedPipe(Pipe<I, R> left, Pipe<R, T> right)
       {
@@ -646,7 +603,7 @@ namespace PipesCore
 
       public override IAsyncResult BeginFlow(I input, AsyncCallback cb, object state)
       {
-         AsyncResult tCompleteResult = CreateResult(input, cb, state); // new AsyncResult(cb, null, state);
+         ConnectedResult tCompleteResult = CreateResult(input, cb, state); // new AsyncResult(cb, null, state);
          mLeft.BeginFlow(input, r =>
             {
                try
@@ -666,7 +623,7 @@ namespace PipesCore
       {
          try
          {
-            AsyncResult tCompleteResult = (AsyncResult)result;
+            ConnectedResult tCompleteResult = CheckAsyncResult<ConnectedResult>(result); // (AsyncResult)result;
             if (!tCompleteResult.IsCompleted)
                while (!tCompleteResult.AsyncWaitHandle.WaitOne(1000))
                   Console.WriteLine("Waiting on wait handle... retrying"); // todo: log to something else
@@ -719,7 +676,7 @@ namespace PipesCore
    
    internal class LoopingPipe<I, R, T> : ConditionalPipe<I, R, T>
    {
-      // Capture input state in the result, this way our pipe is fully threadsafe.
+      // Capture input state in the result, this way our pipe is threadsafe.
       protected class LoopingResult : ConnectedResult
       {
          public LoopingResult(AsyncCallback cb, Object state) : base(cb, state) { }
@@ -739,6 +696,11 @@ namespace PipesCore
       {
          LoopingResult tResult = (LoopingResult)completeResult;
          return Pipes.Create<R, T>((r, cb, s) => this.BeginFlow(tResult.Input, cb, s), (r, ar) => this.EndFlow(tResult.Input, ar));
+      }
+
+      protected override A CheckAsyncResult<A>(IAsyncResult result)
+      {
+         return base.CheckAsyncResult<LoopingResult>(result) as A; // little bit too much perhaps
       }
    }
 }

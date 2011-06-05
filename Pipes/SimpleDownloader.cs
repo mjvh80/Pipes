@@ -55,9 +55,6 @@ namespace PipesCore
       // Example with callback which needs to capture closure state so to speak.
       public IAsyncResult BeginDownload(HttpWebRequest pRequest, Stream pSourceOrNull, Boolean pCloseSourceStream, Stream pDestinationOrNull, AsyncCallback pCallback, Object pState)
       {
-         // Build our pipe, save it and start it.
-         DownloadResult tActualResult = null;
-         
          // Pipe for doing request. todo don't create if not needed..
          var requestPipe = pSourceOrNull == null ? Pipes.Null<Stream, Int32>() : 
              Pipes.Create<Stream, Stream>(pRequest.BeginGetRequestStream, pRequest.EndGetRequestStream)
@@ -73,21 +70,30 @@ namespace PipesCore
                .WithResult((wr, pipe) =>
                {
                   Stream tTargetStream = wr.GetResponseStream(); // don't need to dispose -> webresponse will do this
-                  Stream tResultStream = pDestinationOrNull == null ? new MemoryStream((Int32)(wr.ContentLength <= 0 ? sBufferSize : wr.ContentLength)) : pDestinationOrNull; // probably want to max this here..
+                  Stream tResultStream = pDestinationOrNull ?? new MemoryStream((Int32)(wr.ContentLength <= 0 ? sBufferSize : wr.ContentLength)); // probably want to max this here..
                   return Pipes.ReadWrite<WebResponse, Int32>(new Byte[sBufferSize], s => tTargetStream.BeginRead, s => tTargetStream.EndRead, tResultStream.BeginWrite, tResultStream.EndWrite)
                               .Loop(i => i > 0)
                               .Dispose() // get rid of webresponse
                               .Map(i => tResultStream);
                });
 
-         tActualResult = new DownloadResult(finalPipe.BeginFlow(r => pCallback(tActualResult ?? new DownloadResult(r, pRequest, finalPipe)), pState), pRequest, finalPipe);
+         IAsyncResult tActualResult = null;
+
+         // Note that this callback *can* be called on this thread (ie synchronously)!
+         AsyncCallback tActualCallback = r =>
+            {
+               Interlocked.CompareExchange(ref tActualResult, new DownloadResult(r, pRequest, finalPipe), null);
+               pCallback(tActualResult);
+            };
+
+         Interlocked.CompareExchange(ref tActualResult, new DownloadResult(finalPipe.BeginFlow(tActualCallback, pState), pRequest, finalPipe), null);
          return tActualResult;
       }
 
       internal class DownloadResult : WrappingAsyncResult<IAsyncResult>
       {
-         public volatile HttpWebRequest Request;
-         public volatile Pipe<Stream, Stream> Pipe;
+         public HttpWebRequest Request;
+         public Pipe<Stream, Stream> Pipe;
 
          public DownloadResult(IAsyncResult innerResult, HttpWebRequest request, Pipe<Stream, Stream> pipe)
             : base(innerResult)
@@ -97,10 +103,6 @@ namespace PipesCore
          }
       }
 
-      /// <summary>
-      /// Note: after cancellation, it is likely that enddownload will throw exceptions.
-      /// </summary>
-      /// <param name="pResult"></param>
       public void CancelDownload(IAsyncResult pResult)
       {
          DownloadResult tDlRes = pResult as DownloadResult;
@@ -118,11 +120,6 @@ namespace PipesCore
          }
       }
 
-      /// <summary>
-      /// Ends the download, blocking if the download has not yet finished.
-      /// Throws an exception if any exception occurred during the download process.
-      /// Caller should attempt to dispose of the IAsyncResult object.
-      /// </summary>
       public Stream EndDownload(IAsyncResult pResult)
       {
          DownloadResult tDlRes = pResult as DownloadResult;

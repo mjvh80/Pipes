@@ -1,13 +1,21 @@
 
 Some code to stitch together Begin and End asynchronous methods.
 
-For example, perform an asynchronous request to some webservice, download and write the result asynchronously to another:::
+For example, perform an asynchronous request to some webservice (requestPipe is a pipe doing the request), download and write the result asynchronously to another:::
 
- var pipe = Pipes.Create<Stream, Stream>(tRequest.BeginGetRequestStream, tRequest.EndGetRequestStream)
-               .Connect(Pipes.CreateEnd<Stream, Stream>((str, cb, state) => str.BeginWrite(tRequestBuffer, 0, tRequestBuffer.Length, cb, state), (s, r) => s.EndWrite(r)).Dispose())
-               .Connect(tRequest.BeginGetResponse, (r) => tRequest.EndGetResponse(r).GetResponseStream())
-               .Connect(Pipes.ReadWrite<Stream, Int32>(new Byte[1024], (s) => s.BeginRead, s => s.EndRead, tResult.BeginWrite, tResult.EndWrite).Loop(i => i > 0).Dispose());
-
+   var finalPipe =
+            requestPipe
+               .Connect(pRequest.BeginGetResponse, pRequest.EndGetResponse)
+               .WithResult((wr, pipe) =>
+               {
+                  Stream tTargetStream = wr.GetResponseStream(); // don't need to dispose -> webresponse will do this
+                  Stream tResultStream = pDestinationOrNull ?? new MemoryStream((Int32)(wr.ContentLength <= 0 ? sBufferSize : wr.ContentLength)); // probably want to max this here..
+                  return Pipes.ReadWrite<WebResponse, Int32>(new Byte[sBufferSize], s => tTargetStream.BeginRead, s => tTargetStream.EndRead, tResultStream.BeginWrite, tResultStream.EndWrite)
+                              .Loop(i => i > 0)
+                              .Dispose() // get rid of webresponse
+                              .Map(i => tResultStream);
+               });
+ 
  pipe.EndFlow(pipe.BeginFlow(null, null));
 
 On my MacBook this allows me to do 1000 requests to a local webservice (which blocks on threads itself) in about 3 seconds using no more than about 25 threads. This is in no way an accurate benchmark.

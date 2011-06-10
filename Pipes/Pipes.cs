@@ -115,7 +115,7 @@ namespace PipesCore
 
       public static Pipe<R, S> Cast<I, T, R, S>(Pipe<I, T> pipe)
       {
-         return new FunctionPipe<R, I>(r => _Cast<R, I>(r)).Connect(pipe).Map<S>(t => _Cast<T, S>(t));
+         return pipe.Cast<R, S>();
       }
 
       internal static V _Cast<U, V>(U value)

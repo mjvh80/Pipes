@@ -16,6 +16,6 @@ For example, perform an asynchronous request to some webservice (requestPipe is 
                               .Map(i => tResultStream);
                });
  
- pipe.EndFlow(pipe.BeginFlow(null, null));
+ finalPipe.EndFlow(finalPipe.BeginFlow(null, null));
 
 On my MacBook this allows me to do 1000 requests to a local webservice (which blocks on threads itself) in about 3 seconds using no more than about 25 threads. This is in no way an accurate benchmark.

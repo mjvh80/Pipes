@@ -1,4 +1,3 @@
-
 Some code to stitch together Begin and End asynchronous methods.
 
 For example, perform an asynchronous request to some webservice (requestPipe is a pipe doing the request), download and write the result asynchronously to another:::
@@ -17,6 +16,8 @@ For example, perform an asynchronous request to some webservice (requestPipe is 
                });
  
  finalPipe.EndFlow(finalPipe.BeginFlow(null, null));
+
+PLEASE NOTE: I wrote this as a poc, and it's nowhere near finished. With C#'s new support for async/await, the Begin/End asynchronous programming model isn't so sexy any more.
 
 On my MacBook this allows me to do 1000 requests to a local webservice (which blocks on threads itself) in about 3 seconds using no more than about 25 threads. This is in no way an accurate benchmark.
 

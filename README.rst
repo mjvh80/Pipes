@@ -1,3 +1,5 @@
+NOTE: this code is just experimental and in no way intended for anything to do with "production".
+
 Some code to stitch together Begin and End asynchronous methods.
 
 For example, perform an asynchronous request to some webservice (requestPipe is a pipe doing the request), download and write the result asynchronously to another:::
